@@ -18,6 +18,22 @@ import requests
 logger = logging.getLogger(__name__)
 
 
+def get_timeout_settings() -> tuple[int, int]:
+    """
+    環境変数からタイムアウト設定を取得
+
+    Returns:
+        (base_timeout, timeout_increment): 基本タイムアウト時間と増加時間のタプル
+    """
+    # 基本タイムアウト時間（秒）、デフォルト15秒
+    base_timeout = int(os.getenv("REDMINE_DOWNLOAD_BASE_TIMEOUT", "15"))
+
+    # タイムアウト増加時間（秒）、デフォルト15秒
+    timeout_increment = int(os.getenv("REDMINE_DOWNLOAD_TIMEOUT_INCREMENT", "15"))
+
+    return base_timeout, timeout_increment
+
+
 class RedmineAttachment:
     """Redmineの添付ファイルを表すクラス"""
 
@@ -59,8 +75,14 @@ class RedmineAttachment:
             logger.error(f"添付ファイルのURLが取得できません: {self.filename}")
             return False
 
+        # タイムアウト設定を取得
+        base_timeout, timeout_increment = get_timeout_settings()
+
         for attempt in range(retry_count + 1):  # 初回 + リトライ回数
             try:
+                # リトライ回数に応じてタイムアウト時間を計算
+                current_timeout = base_timeout + (attempt * timeout_increment)
+
                 # ファイル名が指定されていない場合は元のファイル名を使用
                 if filename is None:
                     filename = self.filename
@@ -78,13 +100,18 @@ class RedmineAttachment:
                         if k.lower() != "content-type"
                     }
 
-                # ファイルをダウンロード（認証情報付き）
+                logger.debug(
+                    f"添付ファイルダウンロード開始 ({attempt + 1}回目): {self.filename}, タイムアウト: {current_timeout}秒"
+                )
+
+                # ファイルをダウンロード（認証情報付き、タイムアウト設定付き）
                 response = requests.get(
                     self.content_url,
                     stream=True,
                     verify=self.verify_ssl,
                     auth=self.auth,
                     headers=download_headers,
+                    timeout=current_timeout,
                 )
                 response.raise_for_status()
 
@@ -100,6 +127,18 @@ class RedmineAttachment:
                     logger.debug(f"添付ファイルをダウンロードしました: {download_path}")
                 return True
 
+            except requests.exceptions.Timeout as e:
+                if attempt < retry_count:
+                    logger.warning(
+                        f"添付ファイルのダウンロードがタイムアウトしました ({attempt + 1}/{retry_count + 1}回目): {self.filename}, タイムアウト: {current_timeout}秒"
+                    )
+                    logger.info(f"  {retry_interval}秒後にリトライします...")
+                    time.sleep(retry_interval)
+                else:
+                    logger.error(
+                        f"添付ファイルのダウンロードが最終的にタイムアウトしました: {self.filename}, 最終タイムアウト: {current_timeout}秒"
+                    )
+                    return False
             except Exception as e:
                 if attempt < retry_count:
                     logger.warning(
