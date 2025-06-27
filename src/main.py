@@ -209,9 +209,13 @@ def download_attachments(client: RedmineClient, config: dict):
 
                     logger.info(f"  添付ファイル数: {len(attachments)}")
 
-                    # チケットIDごとのディレクトリを作成
+                    # チケットIDごとのディレクトリを作成（既存のディレクトリを削除して再作成）
                     issue_dir = Path(config["download_dir"]) / f"{issue.id}"
-                    issue_dir.mkdir(exist_ok=True)
+                    if issue_dir.exists():
+                        import shutil
+
+                        shutil.rmtree(issue_dir)
+                    issue_dir.mkdir(parents=True)
 
                     # 添付ファイルをダウンロード
                     try:
