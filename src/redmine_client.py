@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import re
+import time
 import urllib.parse
 from collections.abc import Sequence
 from pathlib import Path
@@ -162,14 +163,15 @@ class RedmineIssue:
 
         return safe_filename
 
-    def download_attachments(self, download_dir: str):
+    def download_attachments(self, download_dir: str, download_interval: float = 0.0):
         """
         添付ファイルをダウンロード（ファイル名をデコードして保存）
 
         Args:
             download_dir: ダウンロードディレクトリ
+            download_interval: ファイルダウンロード間の待機時間（秒）
         """
-        for attachment in self.get_attachments():
+        for i, attachment in enumerate(self.get_attachments(), 1):
             try:
                 # 元のファイル名を取得
                 original_filename = attachment.filename
@@ -189,17 +191,24 @@ class RedmineIssue:
 
                 # ファイルをダウンロード
                 logger.debug(
-                    f"添付ファイルをダウンロード中: {original_filename} -> {download_path.name}"
+                    f"添付ファイルをダウンロード中 ({i}/{len(self.get_attachments())}): {original_filename} -> {download_path.name}"
                 )
 
                 if attachment.download(str(download_path.parent), download_path.name):
                     logger.info(
-                        f"添付ファイルをダウンロードしました: {download_path.name}"
+                        f"添付ファイルをダウンロードしました ({i}/{len(self.get_attachments())}): {download_path.name}"
                     )
                 else:
                     logger.error(
                         f"添付ファイルのダウンロードに失敗しました: {original_filename}"
                     )
+
+                # ファイルダウンロード間隔を設定（最後のファイル以外）
+                if download_interval > 0 and i < len(self.get_attachments()):
+                    logger.debug(
+                        f"  ファイルダウンロード間隔待機: {download_interval}秒"
+                    )
+                    time.sleep(download_interval)
 
             except Exception as e:
                 logger.error(

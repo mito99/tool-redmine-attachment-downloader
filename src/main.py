@@ -208,7 +208,7 @@ def download_attachments(client: RedmineClient, config: dict):
 
                     # 添付ファイルをダウンロード
                     try:
-                        issue.download_attachments(str(issue_dir))
+                        issue.download_attachments(str(issue_dir), download_interval)
                         downloaded_attachments += len(attachments)
                         logger.info(f"  ダウンロード完了: {issue_dir}")
 
