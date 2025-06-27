@@ -1,11 +1,12 @@
 # Redmine添付ファイルダウンローダー
 
-Redmineからチケットとその添付ファイルを一括ダウンロードするPythonツールです。
+Redmineからチケットとその添付ファイルを一括ダウンロード・削除するPythonツールです。
 
 ## 機能
 
 - Redmineのチケット一覧を取得（REST API使用）
 - チケットに添付されたファイルを自動ダウンロード
+- **チケットに添付されたファイルを自動削除（Playwright使用）**
 - 範囲指定によるチケット取得（オフセット開始・終了）
 - バッチ処理による大量データの効率的な処理
 - 詳細なログ出力（ローテーション機能付き）
@@ -29,6 +30,9 @@ cd tool-redmine-attachment-downloader
 
 # 依存関係をインストール
 uv sync
+
+# Playwrightのブラウザをインストール（添付ファイル削除機能を使用する場合）
+python scripts/install_playwright.py
 ```
 
 ## 設定
@@ -65,186 +69,91 @@ export REDMINE_API_RETRY_COUNT="3"             # APIリクエスト失敗時の�
 export REDMINE_API_RETRY_INTERVAL="5.0"        # APIリクエストリトライ間隔（秒）（デフォルト: 5.0）
 export REDMINE_API_BASE_TIMEOUT="30"           # APIリクエスト基本タイムアウト時間（秒）（デフォルト: 30）
 export REDMINE_API_TIMEOUT_INCREMENT="10"      # APIリクエストタイムアウト増加時間（秒）（デフォルト: 10）
+
+# 添付ファイル削除機能用の設定
+export REDMINE_BROWSER_HEADLESS="true"         # ブラウザのヘッドレスモード（デフォルト: true）
+export REDMINE_BROWSER_TIMEOUT="30"            # ブラウザ操作のタイムアウト（秒）（デフォルト: 30）
+export REDMINE_DELETE_INTERVAL="1.0"           # 削除操作間の待機時間（秒）（デフォルト: 1.0）
+export REDMINE_DELETE_RETRY_COUNT="3"          # 削除失敗時のリトライ回数（デフォルト: 3）
+export REDMINE_DELETE_RETRY_INTERVAL="2.0"     # 削除リトライ間隔（秒）（デフォルト: 2.0）
+export REDMINE_DELETE_CONFIRM_SKIP="false"     # 削除確認をスキップする（デフォルト: false）
 ```
 
 ## 使用方法
 
-### 基本的な使用方法
+### 添付ファイルのダウンロード
 
 ```bash
-# 環境変数を使用
-python src/main.py
+# 基本的な使用方法
+python scripts/donwload_attachments.py
 
-# コマンドライン引数を使用
-python src/main.py \
-  --base-url "https://your-redmine-instance.com" \
-  --api-key "your-api-key" \
-  --download-dir "downloads" \
-  --limit 20 \
-  --offset-start 0 \
-  --offset-end 100 \
-  --request-interval 2.0 \
-  --download-interval 1.0
+# 環境変数を使用した詳細設定
+export REDMINE_LIMIT="20"
+export REDMINE_OFFSET_START="0"
+export REDMINE_OFFSET_END="100"
+python scripts/donwload_attachments.py
 ```
 
-### コマンドライン引数
+### 添付ファイルの削除
 
-| 引数 | 説明 | デフォルト |
-|------|------|------------|
-| `--base-url` | RedmineのベースURL | 環境変数から取得 |
-| `--api-key` | RedmineのAPIキー | 環境変数から取得 |
-| `--username` | Redmineのユーザ名 | 環境変数から取得 |
-| `--password` | Redmineのパスワード | 環境変数から取得 |
-| `--download-dir` | ダウンロードディレクトリ | downloads |
-| `--limit` | 1回の取得件数 | 10 |
-| `--offset-start` | 開始オフセット | 0 |
-| `--offset-end` | 終了オフセット（0の場合は制限なし） | 0 |
-| `--sort` | ソート順 | created_on:asc |
-| `--clear-downloads` | ダウンロードディレクトリをクリアする | true |
-| `--no-clear-downloads` | ダウンロードディレクトリをクリアしない | - |
-| `--request-interval` | リクエスト間隔（秒） | 1.0 |
-| `--download-interval` | ダウンロード間隔（秒） | 0.5 |
+```bash
+# 基本的な使用方法（削除確認あり）
+python scripts/delete_attachments.py
+
+# 削除確認をスキップする場合
+export REDMINE_DELETE_CONFIRM_SKIP="true"
+python scripts/delete_attachments.py
+
+# ヘッドレスモードを無効にしてブラウザを表示
+export REDMINE_BROWSER_HEADLESS="false"
+python scripts/delete_attachments.py
+```
 
 ### 使用例
 
-#### 全チケットをダウンロード（ディレクトリをクリア）
+#### 全チケットの添付ファイルをダウンロード
 ```bash
-python src/main.py --limit 50 --offset-start 0 --offset-end 0
+python scripts/donwload_attachments.py
 ```
 
-#### 特定範囲のチケットをダウンロード（既存ファイルを保持、間隔を長めに設定）
+#### 特定範囲のチケットの添付ファイルを削除
 ```bash
-python src/main.py --limit 20 --offset-start 100 --offset-end 200 --no-clear-downloads --request-interval 3.0 --download-interval 2.0
+export REDMINE_LIMIT="20"
+export REDMINE_OFFSET_START="100"
+export REDMINE_OFFSET_END="200"
+python scripts/delete_attachments.py
 ```
 
-#### 最新のチケットからダウンロード（高速処理）
+#### 最新のチケットから添付ファイルを削除（高速処理）
 ```bash
-python src/main.py --limit 10 --sort "created_on:desc" --request-interval 0.5 --download-interval 0.1
-```
-
-#### 社内プロキシ環境での使用（SSL検証無効化）
-```bash
-export REDMINE_VERIFY_SSL="false"
-python src/main.py --limit 20 --offset-start 0 --offset-end 100
+export REDMINE_LIMIT="10"
+export REDMINE_SORT="created_on:desc"
+export REDMINE_DELETE_INTERVAL="0.5"
+python scripts/delete_attachments.py
 ```
 
 ## 動作仕様
 
-### オフセット範囲処理
+### 添付ファイル削除機能
 
-1. **開始オフセット（offset_start）**: ダウンロードを開始するチケットの位置
-   - 指定されていない場合は0から開始
-   - 0ベースのインデックス
+1. **ブラウザ操作**: Playwrightを使用してRedmineのWebインターフェースを操作
+2. **ログイン処理**: 指定されたユーザ名・パスワードでRedmineにログイン
+3. **チケット取得**: REST APIを使用して添付ファイルが存在するチケットを取得
+4. **削除処理**: 各チケットページに移動し、添付ファイルの削除ボタンをクリック
+5. **確認ダイアログ**: 削除確認ダイアログが表示された場合は自動的に「OK」をクリック
+6. **間隔制御**: 削除操作間に指定された間隔で待機
 
-2. **終了オフセット（offset_end）**: ダウンロードを終了するチケットの位置
-   - 0の場合は制限なし（全チケットを処理）
-   - 指定された値に達したら処理を終了
+### 削除確認機能
 
-3. **バッチ処理**: 
-   - `limit`で指定された件数ずつチケットを取得
-   - 各バッチで添付ファイルをダウンロード
-   - 取得できなくなったら自動的に終了
+1. **削除対象の表示**: 削除対象となるチケットと添付ファイル数を事前に表示
+2. **ユーザー確認**: 削除実行前にユーザーの確認を求める
+3. **確認スキップ**: `REDMINE_DELETE_CONFIRM_SKIP=true`で確認をスキップ可能
 
-### ファイル名デコード機能
+### ブラウザ設定
 
-1. **URLエンコードデコード**: 
-   - `urllib.parse.unquote`を使用してURLエンコードされたファイル名をデコード
-   - 日本語などの2バイト文字を正しく表示
-
-2. **ファイル名の安全化**:
-   - Windows/Unix両方で使用できない文字を除去
-   - 危険な文字（`<>:"/\|?*`など）を`_`に置換
-   - 先頭・末尾の空白とドットを除去
-
-3. **重複ファイル名の処理**:
-   - 同名ファイルが存在する場合は連番を付与
-   - 例: `document.pdf` → `document_1.pdf`
-
-4. **エラーハンドリング**:
-   - デコードに失敗した場合は元のファイル名を使用
-   - 空のファイル名の場合は`unnamed_file`を使用
-
-### サーバー負荷軽減機能
-
-1. **リクエスト間隔（request_interval）**: チケット一覧取得間の待機時間
-   - デフォルト: 1.0秒
-   - バッチ間の間隔として適用
-   - サーバーのAPI負荷を軽減
-
-2. **ダウンロード間隔（download_interval）**: 添付ファイルダウンロード間の待機時間
-   - デフォルト: 0.5秒
-   - 各チケットの添付ファイルダウンロード後に適用
-   - サーバーのファイル転送負荷を軽減
-
-3. **間隔制御の効果**:
-   - サーバーへの負荷を分散
-   - レート制限エラーを回避
-   - 安定したダウンロード処理を実現
-
-### リトライ機能
-
-1. **ファイルダウンロード用リトライ**:
-   - **リトライ回数（retry_count）**: ダウンロード失敗時のリトライ回数（デフォルト: 3回）
-   - **リトライ間隔（retry_interval）**: リトライ間の待機時間（デフォルト: 5.0秒）
-   - **タイムアウト機能**: ダウンロード時のタイムアウト設定
-     - **基本タイムアウト（base_timeout）**: 初回試行のタイムアウト時間（デフォルト: 15秒）
-     - **タイムアウト増加時間（timeout_increment）**: リトライごとのタイムアウト増加時間（デフォルト: 15秒）
-
-2. **APIリクエスト用リトライ**:
-   - **リトライ回数（api_retry_count）**: APIリクエスト失敗時のリトライ回数（デフォルト: 3回）
-   - **リトライ間隔（api_retry_interval）**: APIリクエストリトライ間の待機時間（デフォルト: 5.0秒）
-   - **タイムアウト機能**: APIリクエスト時のタイムアウト設定
-     - **基本タイムアウト（api_base_timeout）**: 初回試行のタイムアウト時間（デフォルト: 30秒）
-     - **タイムアウト増加時間（api_timeout_increment）**: リトライごとのタイムアウト増加時間（デフォルト: 10秒）
-
-3. **タイムアウト計算式**: `current_timeout = base_timeout + (attempt * timeout_increment)`
-   - **ファイルダウンロード例**: 基本15秒、増加15秒の場合
-     - 1回目: 15秒
-     - 2回目: 30秒
-     - 3回目: 45秒
-     - 4回目: 60秒
-   - **APIリクエスト例**: 基本30秒、増加10秒の場合
-     - 1回目: 30秒
-     - 2回目: 40秒
-     - 3回目: 50秒
-     - 4回目: 60秒
-
-4. **リトライ対象エラー**:
-   - ネットワーク接続エラー
-   - HTTP 5xxエラー（サーバーエラー）
-   - タイムアウトエラー
-   - 一時的な認証エラー
-
-5. **リトライ処理の流れ**:
-   - 初回試行（基本タイムアウト時間で実行）
-   - 失敗時は`retry_interval`秒待機
-   - リトライ時はタイムアウト時間を増加させて実行
-   - 最大`retry_count`回までリトライ
-   - 最終的に失敗した場合はエラーログに記録
-
-6. **ログ出力**:
-   - リトライ試行時: WARNINGレベルでリトライ回数とタイムアウト時間を表示
-   - タイムアウト時: WARNINGレベルでタイムアウト時間を表示
-   - リトライ成功時: INFOレベルで成功を表示
-   - 最終失敗時: ERRORレベルで失敗を表示
-
-### ダウンロードディレクトリのクリア
-
-- **デフォルト動作**: ダウンロード開始前に既存のファイルを削除
-- **無効化**: `--no-clear-downloads`オプションで既存ファイルを保持
-- **安全性**: クリア処理はログに記録され、エラー時は処理を停止
-
-### ダウンロード構造
-
-```
-downloads/
-├── 123/                    # チケットID
-│   ├── 添付ファイル1.pdf   # デコードされた日本語ファイル名
-│   └── attachment2.jpg
-├── 124/
-│   └── ドキュメント.docx   # デコードされた日本語ファイル名
-└── ...
-```
+1. **ヘッドレスモード**: デフォルトで有効（`REDMINE_BROWSER_HEADLESS=true`）
+2. **タイムアウト設定**: ブラウザ操作のタイムアウト時間（デフォルト: 30秒）
+3. **削除間隔**: 削除操作間の待機時間（デフォルト: 1.0秒）
 
 ## ログ機能
 

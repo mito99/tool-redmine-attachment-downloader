@@ -16,7 +16,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 # srcディレクトリをPythonパスに追加
-sys.path.append(str(Path(__file__).parent))
+sys.path.append(str(Path(__file__).parent.parent / "src"))
 
 from redmine_client import RedmineClient
 
