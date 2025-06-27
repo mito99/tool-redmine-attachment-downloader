@@ -20,7 +20,9 @@ logger = logging.getLogger(__name__)
 class RedmineAttachment:
     """Redmineの添付ファイルを表すクラス"""
 
-    def __init__(self, attachment_data: Dict, verify_ssl: bool = True):
+    def __init__(
+        self, attachment_data: Dict, verify_ssl: bool = True, auth=None, headers=None
+    ):
         self.id = attachment_data.get("id")
         self.filename = attachment_data.get("filename", "")
         self.content_url = attachment_data.get("content_url", "")
@@ -30,6 +32,8 @@ class RedmineAttachment:
         self.author = attachment_data.get("author", {})
         self.created_on = attachment_data.get("created_on", "")
         self.verify_ssl = verify_ssl
+        self.auth = auth
+        self.headers = headers or {}
 
     def download(self, directory: str, filename: str = None) -> bool:
         """
@@ -54,9 +58,13 @@ class RedmineAttachment:
             # ダウンロードパスを構築
             download_path = Path(directory) / filename
 
-            # ファイルをダウンロード
+            # ファイルをダウンロード（認証情報付き）
             response = requests.get(
-                self.content_url, stream=True, verify=self.verify_ssl
+                self.content_url,
+                stream=True,
+                verify=self.verify_ssl,
+                auth=self.auth,
+                headers=self.headers,
             )
             response.raise_for_status()
 
@@ -77,7 +85,9 @@ class RedmineAttachment:
 class RedmineIssue:
     """Redmineのチケットを表すクラス"""
 
-    def __init__(self, issue_data: Dict, verify_ssl: bool = True):
+    def __init__(
+        self, issue_data: Dict, verify_ssl: bool = True, auth=None, headers=None
+    ):
         self.id = issue_data.get("id")
         self.subject = issue_data.get("subject", "")
         self.description = issue_data.get("description", "")
@@ -88,12 +98,16 @@ class RedmineIssue:
         self.created_on = issue_data.get("created_on", "")
         self.updated_on = issue_data.get("updated_on", "")
         self.verify_ssl = verify_ssl
+        self.auth = auth
+        self.headers = headers
 
         # 添付ファイルの初期化
         self._attachments = []
         attachments_data = issue_data.get("attachments", [])
         for attachment_data in attachments_data:
-            self._attachments.append(RedmineAttachment(attachment_data, verify_ssl))
+            self._attachments.append(
+                RedmineAttachment(attachment_data, verify_ssl, auth, headers)
+            )
 
     def get_attachments(self) -> List[RedmineAttachment]:
         return self._attachments
@@ -306,7 +320,14 @@ class RedmineClient:
             # レスポンスからチケット一覧を構築
             issues = []
             for issue_data in data.get("issues", []):
-                issues.append(RedmineIssue(issue_data, self.verify_ssl))
+                issues.append(
+                    RedmineIssue(
+                        issue_data,
+                        self.verify_ssl,
+                        self.session.auth,
+                        self.session.headers,
+                    )
+                )
 
             logger.debug(
                 f"チケット取得リクエスト完了: limit={limit}, offset={offset}, 取得件数={len(issues)}"
