@@ -26,12 +26,28 @@ def get_timeout_settings() -> tuple[int, int]:
         (base_timeout, timeout_increment): 基本タイムアウト時間と増加時間のタプル
     """
     # 基本タイムアウト時間（秒）、デフォルト15秒
-    base_timeout = int(os.getenv("REDMINE_DOWNLOAD_BASE_TIMEOUT", "15"))
+    base_timeout = int(os.getenv("REDMINE_BASE_TIMEOUT", "15"))
 
     # タイムアウト増加時間（秒）、デフォルト15秒
-    timeout_increment = int(os.getenv("REDMINE_DOWNLOAD_TIMEOUT_INCREMENT", "15"))
+    timeout_increment = int(os.getenv("REDMINE_TIMEOUT_INCREMENT", "15"))
 
     return base_timeout, timeout_increment
+
+
+def get_retry_settings() -> tuple[int, float]:
+    """
+    環境変数からリトライ設定を取得
+
+    Returns:
+        (retry_count, retry_interval): リトライ回数とリトライ間隔のタプル
+    """
+    # リトライ回数、デフォルト3回
+    retry_count = int(os.getenv("REDMINE_RETRY_COUNT", "3"))
+
+    # リトライ間隔（秒）、デフォルト5.0秒
+    retry_interval = float(os.getenv("REDMINE_RETRY_INTERVAL", "5.0"))
+
+    return retry_count, retry_interval
 
 
 class RedmineAttachment:
@@ -74,6 +90,9 @@ class RedmineAttachment:
         if not self.content_url:
             logger.error(f"添付ファイルのURLが取得できません: {self.filename}")
             return False
+
+        # リトライ設定を取得
+        retry_count, retry_interval = get_retry_settings()
 
         # タイムアウト設定を取得
         base_timeout, timeout_increment = get_timeout_settings()
@@ -390,7 +409,7 @@ class RedmineClient:
 
     def _make_request(self, endpoint: str, params: Dict = None) -> Dict:
         """
-        Redmine APIにリクエストを送信
+        Redmine APIにリクエストを送信（リトライ機能付き）
 
         Args:
             endpoint: APIエンドポイント
@@ -401,18 +420,55 @@ class RedmineClient:
         """
         url = f"{self.base_url}{endpoint}"
 
-        try:
-            response = self.session.get(url, params=params, verify=self.verify_ssl)
-            response.raise_for_status()
+        # リトライ設定を取得
+        retry_count, retry_interval = get_retry_settings()
 
-            # JSONレスポンスを解析
-            data = response.json()
-            logger.debug(f"APIリクエスト成功: {url}")
-            return data
+        # タイムアウト設定を取得
+        base_timeout, timeout_increment = get_timeout_settings()
 
-        except requests.exceptions.RequestException as e:
-            logger.error(f"APIリクエストに失敗しました: {url}, エラー: {e}")
-            raise
+        for attempt in range(retry_count + 1):  # 初回 + リトライ回数
+            try:
+                # リトライ回数に応じてタイムアウト時間を計算
+                current_timeout = base_timeout + (attempt * timeout_increment)
+
+                logger.debug(
+                    f"APIリクエスト開始 ({attempt + 1}回目): {url}, タイムアウト: {current_timeout}秒"
+                )
+
+                response = self.session.get(
+                    url, params=params, verify=self.verify_ssl, timeout=current_timeout
+                )
+                response.raise_for_status()
+
+                # JSONレスポンスを解析
+                data = response.json()
+                logger.debug(f"APIリクエスト成功: {url}")
+                return data
+
+            except requests.exceptions.Timeout as e:
+                if attempt < retry_count:
+                    logger.warning(
+                        f"APIリクエストがタイムアウトしました ({attempt + 1}/{retry_count + 1}回目): {url}, タイムアウト: {current_timeout}秒"
+                    )
+                    logger.info(f"  {retry_interval}秒後にリトライします...")
+                    time.sleep(retry_interval)
+                else:
+                    logger.error(
+                        f"APIリクエストが最終的にタイムアウトしました: {url}, 最終タイムアウト: {current_timeout}秒"
+                    )
+                    raise
+            except requests.exceptions.RequestException as e:
+                if attempt < retry_count:
+                    logger.warning(
+                        f"APIリクエストに失敗しました ({attempt + 1}/{retry_count + 1}回目): {url}, エラー: {e}"
+                    )
+                    logger.info(f"  {retry_interval}秒後にリトライします...")
+                    time.sleep(retry_interval)
+                else:
+                    logger.error(
+                        f"APIリクエストに最終的に失敗しました: {url}, エラー: {e}"
+                    )
+                    raise
 
     def get_issues(
         self, limit: int = 10, offset: int = 0, sort: str = "created_on:asc"

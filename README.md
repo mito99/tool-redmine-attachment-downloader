@@ -57,10 +57,14 @@ export REDMINE_CLEAR_DOWNLOADS="true"          # ダウンロードディレク�
 export REDMINE_REQUEST_INTERVAL="1.0"          # リクエスト間隔（秒）（デフォルト: 1.0）
 export REDMINE_DOWNLOAD_INTERVAL="0.5"         # ダウンロード間隔（秒）（デフォルト: 0.5）
 export REDMINE_VERIFY_SSL="true"               # SSL証明書の検証を行う（デフォルト: true）
-export REDMINE_RETRY_COUNT="3"                 # ダウンロード失敗時のリトライ回数（デフォルト: 3）
+export REDMINE_RETRY_COUNT="3"                 # リトライ回数（デフォルト: 3）
 export REDMINE_RETRY_INTERVAL="5.0"            # リトライ間隔（秒）（デフォルト: 5.0）
-export REDMINE_DOWNLOAD_BASE_TIMEOUT="15"      # 基本タイムアウト時間（秒）（デフォルト: 15）
-export REDMINE_DOWNLOAD_TIMEOUT_INCREMENT="15" # タイムアウト増加時間（秒）（デフォルト: 15）
+export REDMINE_BASE_TIMEOUT="15"               # 基本タイムアウト時間（秒）（デフォルト: 15）
+export REDMINE_TIMEOUT_INCREMENT="15"          # タイムアウト増加時間（秒）（デフォルト: 15）
+export REDMINE_API_RETRY_COUNT="3"             # APIリクエスト失敗時のリトライ回数（デフォルト: 3）
+export REDMINE_API_RETRY_INTERVAL="5.0"        # APIリクエストリトライ間隔（秒）（デフォルト: 5.0）
+export REDMINE_API_BASE_TIMEOUT="30"           # APIリクエスト基本タイムアウト時間（秒）（デフォルト: 30）
+export REDMINE_API_TIMEOUT_INCREMENT="10"      # APIリクエストタイムアウト増加時間（秒）（デフォルト: 10）
 ```
 
 ## 使用方法
@@ -179,24 +183,30 @@ python src/main.py --limit 20 --offset-start 0 --offset-end 100
 
 ### リトライ機能
 
-1. **リトライ回数（retry_count）**: ダウンロード失敗時のリトライ回数
-   - デフォルト: 3回
-   - 初回試行 + リトライ回数で最大4回試行
-   - ネットワークエラーや一時的なサーバー負荷に対応
+1. **ファイルダウンロード用リトライ**:
+   - **リトライ回数（retry_count）**: ダウンロード失敗時のリトライ回数（デフォルト: 3回）
+   - **リトライ間隔（retry_interval）**: リトライ間の待機時間（デフォルト: 5.0秒）
+   - **タイムアウト機能**: ダウンロード時のタイムアウト設定
+     - **基本タイムアウト（base_timeout）**: 初回試行のタイムアウト時間（デフォルト: 15秒）
+     - **タイムアウト増加時間（timeout_increment）**: リトライごとのタイムアウト増加時間（デフォルト: 15秒）
 
-2. **リトライ間隔（retry_interval）**: リトライ間の待機時間
-   - デフォルト: 5.0秒
-   - サーバーの負荷軽減とエラー回復を待つ
-   - 指数バックオフではなく固定間隔
+2. **APIリクエスト用リトライ**:
+   - **リトライ回数（api_retry_count）**: APIリクエスト失敗時のリトライ回数（デフォルト: 3回）
+   - **リトライ間隔（api_retry_interval）**: APIリクエストリトライ間の待機時間（デフォルト: 5.0秒）
+   - **タイムアウト機能**: APIリクエスト時のタイムアウト設定
+     - **基本タイムアウト（api_base_timeout）**: 初回試行のタイムアウト時間（デフォルト: 30秒）
+     - **タイムアウト増加時間（api_timeout_increment）**: リトライごとのタイムアウト増加時間（デフォルト: 10秒）
 
-3. **タイムアウト機能**: ダウンロード時のタイムアウト設定
-   - **基本タイムアウト（base_timeout）**: 初回試行のタイムアウト時間（デフォルト: 15秒）
-   - **タイムアウト増加時間（timeout_increment）**: リトライごとのタイムアウト増加時間（デフォルト: 15秒）
-   - **タイムアウト計算式**: `current_timeout = base_timeout + (attempt * timeout_increment)`
-   - **例**: 基本15秒、増加15秒の場合
+3. **タイムアウト計算式**: `current_timeout = base_timeout + (attempt * timeout_increment)`
+   - **ファイルダウンロード例**: 基本15秒、増加15秒の場合
      - 1回目: 15秒
      - 2回目: 30秒
      - 3回目: 45秒
+     - 4回目: 60秒
+   - **APIリクエスト例**: 基本30秒、増加10秒の場合
+     - 1回目: 30秒
+     - 2回目: 40秒
+     - 3回目: 50秒
      - 4回目: 60秒
 
 4. **リトライ対象エラー**:
@@ -206,7 +216,7 @@ python src/main.py --limit 20 --offset-start 0 --offset-end 100
    - 一時的な認証エラー
 
 5. **リトライ処理の流れ**:
-   - 初回ダウンロード試行（基本タイムアウト時間で実行）
+   - 初回試行（基本タイムアウト時間で実行）
    - 失敗時は`retry_interval`秒待機
    - リトライ時はタイムアウト時間を増加させて実行
    - 最大`retry_count`回までリトライ
@@ -336,21 +346,28 @@ python src/main.py --request-interval 3.0 --download-interval 2.0
    - タイムアウト増加時間を調整: `export REDMINE_DOWNLOAD_TIMEOUT_INCREMENT="20"`
    - ネットワーク環境に応じて適切なタイムアウト時間を設定してください
 
-6. **ディスク容量不足**
+6. **APIリクエストエラー**
+   - チケット一覧取得時に発生する可能性があります
+   - APIリクエストの基本タイムアウト時間を増加: `export REDMINE_API_BASE_TIMEOUT="60"`
+   - APIリクエストのタイムアウト増加時間を調整: `export REDMINE_API_TIMEOUT_INCREMENT="15"`
+   - APIリクエストのリトライ回数を増加: `export REDMINE_API_RETRY_COUNT="5"`
+   - サーバーの負荷が高い場合は間隔を長くして再実行してください
+
+7. **ディスク容量不足**
    - ダウンロードディレクトリの空き容量を確認
    - 不要なファイルを削除
 
-7. **ディレクトリクリアエラー**
+8. **ディレクトリクリアエラー**
    - ダウンロードディレクトリの権限を確認
    - 他のプロセスがファイルを使用していないか確認
 
-8. **ファイル名エンコーディングエラー**
+9. **ファイル名エンコーディングエラー**
    - ファイル名のデコードに失敗した場合は元のファイル名で保存されます
    - ログでデコードエラーの詳細を確認してください
 
-9. **ログファイルサイズ過大**
-   - `logs`ディレクトリ内の古いログファイルを削除
-   - ローテーション設定を調整（コード内で変更可能）
+10. **ログファイルサイズ過大**
+    - `logs`ディレクトリ内の古いログファイルを削除
+    - ローテーション設定を調整（コード内で変更可能）
 
 ## ライセンス
 
