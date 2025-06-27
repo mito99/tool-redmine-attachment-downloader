@@ -108,6 +108,8 @@ def setup_environment():
         "request_interval": float(os.getenv("REDMINE_REQUEST_INTERVAL", "1.0")),
         "download_interval": float(os.getenv("REDMINE_DOWNLOAD_INTERVAL", "0.5")),
         "verify_ssl": os.getenv("REDMINE_VERIFY_SSL", "true").lower() == "true",
+        "retry_count": int(os.getenv("REDMINE_RETRY_COUNT", "3")),
+        "retry_interval": float(os.getenv("REDMINE_RETRY_INTERVAL", "5.0")),
     }
 
     # 必須項目のチェック
@@ -148,12 +150,17 @@ def download_attachments(client: RedmineClient, config: dict):
         sort = config["sort"]
         request_interval = config["request_interval"]
         download_interval = config["download_interval"]
+        retry_count = config["retry_count"]
+        retry_interval = config["retry_interval"]
 
         logger.info(
             f"ダウンロード範囲: offset_start={offset_start}, offset_end={offset_end}"
         )
         logger.info(
             f"間隔設定: リクエスト間隔={request_interval}秒, ダウンロード間隔={download_interval}秒"
+        )
+        logger.info(
+            f"リトライ設定: リトライ回数={retry_count}回, リトライ間隔={retry_interval}秒"
         )
 
         total_attachments = 0
@@ -208,7 +215,12 @@ def download_attachments(client: RedmineClient, config: dict):
 
                     # 添付ファイルをダウンロード
                     try:
-                        issue.download_attachments(str(issue_dir), download_interval)
+                        issue.download_attachments(
+                            str(issue_dir),
+                            download_interval,
+                            retry_count,
+                            retry_interval,
+                        )
                         downloaded_attachments += len(attachments)
                         logger.info(f"  ダウンロード完了: {issue_dir}")
 

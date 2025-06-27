@@ -36,13 +36,21 @@ class RedmineAttachment:
         self.auth = auth
         self.headers = headers or {}
 
-    def download(self, directory: str, filename: str = None) -> bool:
+    def download(
+        self,
+        directory: str,
+        filename: str = None,
+        retry_count: int = 3,
+        retry_interval: float = 5.0,
+    ) -> bool:
         """
         添付ファイルをダウンロード
 
         Args:
             directory: ダウンロードディレクトリ
             filename: 保存するファイル名（Noneの場合は元のファイル名を使用）
+            retry_count: リトライ回数
+            retry_interval: リトライ間隔（秒）
 
         Returns:
             ダウンロード成功時はTrue
@@ -51,44 +59,61 @@ class RedmineAttachment:
             logger.error(f"添付ファイルのURLが取得できません: {self.filename}")
             return False
 
-        try:
-            # ファイル名が指定されていない場合は元のファイル名を使用
-            if filename is None:
-                filename = self.filename
+        for attempt in range(retry_count + 1):  # 初回 + リトライ回数
+            try:
+                # ファイル名が指定されていない場合は元のファイル名を使用
+                if filename is None:
+                    filename = self.filename
 
-            # ダウンロードパスを構築
-            download_path = Path(directory) / filename
+                # ダウンロードパスを構築
+                download_path = Path(directory) / filename
 
-            # ファイルダウンロード用のヘッダーを準備
-            download_headers = {}
-            if self.headers:
-                # Content-Typeヘッダーを除外（ファイルダウンロードでは不要）
-                download_headers = {
-                    k: v for k, v in self.headers.items() if k.lower() != "content-type"
-                }
+                # ファイルダウンロード用のヘッダーを準備
+                download_headers = {}
+                if self.headers:
+                    # Content-Typeヘッダーを除外（ファイルダウンロードでは不要）
+                    download_headers = {
+                        k: v
+                        for k, v in self.headers.items()
+                        if k.lower() != "content-type"
+                    }
 
-            # ファイルをダウンロード（認証情報付き）
-            response = requests.get(
-                self.content_url,
-                stream=True,
-                verify=self.verify_ssl,
-                auth=self.auth,
-                headers=download_headers,
-            )
-            response.raise_for_status()
+                # ファイルをダウンロード（認証情報付き）
+                response = requests.get(
+                    self.content_url,
+                    stream=True,
+                    verify=self.verify_ssl,
+                    auth=self.auth,
+                    headers=download_headers,
+                )
+                response.raise_for_status()
 
-            with open(download_path, "wb") as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    f.write(chunk)
+                with open(download_path, "wb") as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        f.write(chunk)
 
-            logger.debug(f"添付ファイルをダウンロードしました: {download_path}")
-            return True
+                if attempt > 0:
+                    logger.info(
+                        f"添付ファイルのリトライ成功 ({attempt + 1}回目): {download_path}"
+                    )
+                else:
+                    logger.debug(f"添付ファイルをダウンロードしました: {download_path}")
+                return True
 
-        except Exception as e:
-            logger.error(
-                f"添付ファイルのダウンロードに失敗しました: {self.filename}, エラー: {e}"
-            )
-            return False
+            except Exception as e:
+                if attempt < retry_count:
+                    logger.warning(
+                        f"添付ファイルのダウンロードに失敗しました ({attempt + 1}/{retry_count + 1}回目): {self.filename}, エラー: {e}"
+                    )
+                    logger.info(f"  {retry_interval}秒後にリトライします...")
+                    time.sleep(retry_interval)
+                else:
+                    logger.error(
+                        f"添付ファイルのダウンロードに最終的に失敗しました: {self.filename}, エラー: {e}"
+                    )
+                    return False
+
+        return False
 
 
 class RedmineIssue:
@@ -163,13 +188,21 @@ class RedmineIssue:
 
         return safe_filename
 
-    def download_attachments(self, download_dir: str, download_interval: float = 0.0):
+    def download_attachments(
+        self,
+        download_dir: str,
+        download_interval: float = 0.0,
+        retry_count: int = 3,
+        retry_interval: float = 5.0,
+    ):
         """
         添付ファイルをダウンロード（ファイル名をデコードして保存）
 
         Args:
             download_dir: ダウンロードディレクトリ
             download_interval: ファイルダウンロード間の待機時間（秒）
+            retry_count: リトライ回数
+            retry_interval: リトライ間隔（秒）
         """
         for i, attachment in enumerate(self.get_attachments(), 1):
             try:
@@ -194,7 +227,12 @@ class RedmineIssue:
                     f"添付ファイルをダウンロード中 ({i}/{len(self.get_attachments())}): {original_filename} -> {download_path.name}"
                 )
 
-                if attachment.download(str(download_path.parent), download_path.name):
+                if attachment.download(
+                    str(download_path.parent),
+                    download_path.name,
+                    retry_count,
+                    retry_interval,
+                ):
                     logger.info(
                         f"添付ファイルをダウンロードしました ({i}/{len(self.get_attachments())}): {download_path.name}"
                     )
