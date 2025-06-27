@@ -4,7 +4,7 @@ Redmineからチケットとその添付ファイルを一括ダウンロード�
 
 ## 機能
 
-- Redmineのチケット一覧を取得
+- Redmineのチケット一覧を取得（REST API使用）
 - チケットに添付されたファイルを自動ダウンロード
 - 範囲指定によるチケット取得（オフセット開始・終了）
 - バッチ処理による大量データの効率的な処理
@@ -17,7 +17,7 @@ Redmineからチケットとその添付ファイルを一括ダウンロード�
 
 ### 前提条件
 
-- Python 3.8以上
+- Python 3.11以上
 - uv（パッケージマネージャー）
 
 ### セットアップ
@@ -56,6 +56,7 @@ export REDMINE_SORT="created_on:asc"           # ソート順（デフォルト:
 export REDMINE_CLEAR_DOWNLOADS="true"          # ダウンロードディレクトリをクリアする（デフォルト: true）
 export REDMINE_REQUEST_INTERVAL="1.0"          # リクエスト間隔（秒）（デフォルト: 1.0）
 export REDMINE_DOWNLOAD_INTERVAL="0.5"         # ダウンロード間隔（秒）（デフォルト: 0.5）
+export REDMINE_VERIFY_SSL="true"               # SSL証明書の検証を行う（デフォルト: true）
 ```
 
 ## 使用方法
@@ -111,6 +112,12 @@ python src/main.py --limit 20 --offset-start 100 --offset-end 200 --no-clear-dow
 #### 最新のチケットからダウンロード（高速処理）
 ```bash
 python src/main.py --limit 10 --sort "created_on:desc" --request-interval 0.5 --download-interval 0.1
+```
+
+#### 社内プロキシ環境での使用（SSL検証無効化）
+```bash
+export REDMINE_VERIFY_SSL="false"
+python src/main.py --limit 20 --offset-start 0 --offset-end 100
 ```
 
 ## 動作仕様
@@ -268,23 +275,28 @@ python src/main.py --request-interval 3.0 --download-interval 2.0
    - Redmineサーバーにアクセス可能か確認
    - ファイアウォール設定を確認
 
-3. **レート制限エラー**
+3. **SSL証明書エラー（社内プロキシ環境など）**
+   - 社内プロキシ環境で証明書検証エラーが発生する場合
+   - `export REDMINE_VERIFY_SSL="false"`を設定してSSL検証を無効化
+   - 注意: セキュリティ上のリスクがあるため、信頼できる環境でのみ使用してください
+
+4. **レート制限エラー**
    - 間隔を長くして再実行
    - `--request-interval`と`--download-interval`を増加
 
-4. **ディスク容量不足**
+5. **ディスク容量不足**
    - ダウンロードディレクトリの空き容量を確認
    - 不要なファイルを削除
 
-5. **ディレクトリクリアエラー**
+6. **ディレクトリクリアエラー**
    - ダウンロードディレクトリの権限を確認
    - 他のプロセスがファイルを使用していないか確認
 
-6. **ファイル名エンコーディングエラー**
+7. **ファイル名エンコーディングエラー**
    - ファイル名のデコードに失敗した場合は元のファイル名で保存されます
    - ログでデコードエラーの詳細を確認してください
 
-7. **ログファイルサイズ過大**
+8. **ログファイルサイズ過大**
    - `logs`ディレクトリ内の古いログファイルを削除
    - ローテーション設定を調整（コード内で変更可能）
 

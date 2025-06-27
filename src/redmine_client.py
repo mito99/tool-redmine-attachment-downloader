@@ -1,8 +1,9 @@
 """
 Redmine APIクライアント
-python-redmineライブラリを使用してRedmineからチケットと添付ファイルを取得するクラス
+requestsライブラリを使用してRedmine REST APIからチケットと添付ファイルを取得するクラス
 """
 
+import json
 import logging
 import os
 import re
@@ -11,18 +12,91 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from redminelib import Redmine
-from redminelib.resources import Attachment, Issue
+import requests
 
 logger = logging.getLogger(__name__)
 
 
-class RedmineIssue:
-    def __init__(self, issue: Issue):
-        self.issue = issue
+class RedmineAttachment:
+    """Redmineの添付ファイルを表すクラス"""
 
-    def get_attachments(self) -> List[Attachment]:
-        return self.issue.attachments
+    def __init__(self, attachment_data: Dict, verify_ssl: bool = True):
+        self.id = attachment_data.get("id")
+        self.filename = attachment_data.get("filename", "")
+        self.content_url = attachment_data.get("content_url", "")
+        self.content_type = attachment_data.get("content_type", "")
+        self.filesize = attachment_data.get("filesize", 0)
+        self.description = attachment_data.get("description", "")
+        self.author = attachment_data.get("author", {})
+        self.created_on = attachment_data.get("created_on", "")
+        self.verify_ssl = verify_ssl
+
+    def download(self, directory: str, filename: str = None) -> bool:
+        """
+        添付ファイルをダウンロード
+
+        Args:
+            directory: ダウンロードディレクトリ
+            filename: 保存するファイル名（Noneの場合は元のファイル名を使用）
+
+        Returns:
+            ダウンロード成功時はTrue
+        """
+        if not self.content_url:
+            logger.error(f"添付ファイルのURLが取得できません: {self.filename}")
+            return False
+
+        try:
+            # ファイル名が指定されていない場合は元のファイル名を使用
+            if filename is None:
+                filename = self.filename
+
+            # ダウンロードパスを構築
+            download_path = Path(directory) / filename
+
+            # ファイルをダウンロード
+            response = requests.get(
+                self.content_url, stream=True, verify=self.verify_ssl
+            )
+            response.raise_for_status()
+
+            with open(download_path, "wb") as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+
+            logger.debug(f"添付ファイルをダウンロードしました: {download_path}")
+            return True
+
+        except Exception as e:
+            logger.error(
+                f"添付ファイルのダウンロードに失敗しました: {self.filename}, エラー: {e}"
+            )
+            return False
+
+
+class RedmineIssue:
+    """Redmineのチケットを表すクラス"""
+
+    def __init__(self, issue_data: Dict, verify_ssl: bool = True):
+        self.id = issue_data.get("id")
+        self.subject = issue_data.get("subject", "")
+        self.description = issue_data.get("description", "")
+        self.status = issue_data.get("status", {})
+        self.priority = issue_data.get("priority", {})
+        self.author = issue_data.get("author", {})
+        self.assigned_to = issue_data.get("assigned_to", {})
+        self.created_on = issue_data.get("created_on", "")
+        self.updated_on = issue_data.get("updated_on", "")
+        self.verify_ssl = verify_ssl
+
+        # 添付ファイルの初期化
+        self._attachments = []
+        attachments_data = issue_data.get("attachments", [])
+        for attachment_data in attachments_data:
+            self._attachments.append(RedmineAttachment(attachment_data, verify_ssl))
+
+    def get_attachments(self) -> List[RedmineAttachment]:
+        return self._attachments
 
     def has_attachments(self) -> bool:
         return len(self.get_attachments()) > 0
@@ -95,11 +169,15 @@ class RedmineIssue:
                 logger.debug(
                     f"添付ファイルをダウンロード中: {original_filename} -> {download_path.name}"
                 )
-                attachment.download(
-                    str(download_path.parent), filename=download_path.name
-                )
 
-                logger.info(f"添付ファイルをダウンロードしました: {download_path.name}")
+                if attachment.download(str(download_path.parent), download_path.name):
+                    logger.info(
+                        f"添付ファイルをダウンロードしました: {download_path.name}"
+                    )
+                else:
+                    logger.error(
+                        f"添付ファイルのダウンロードに失敗しました: {original_filename}"
+                    )
 
             except Exception as e:
                 logger.error(
@@ -108,25 +186,20 @@ class RedmineIssue:
 
 
 class RedmineIssueList(Sequence):
-    def __init__(self, issues: List[Issue]):
-        # ResultSetを事前に評価してリストに変換
-        try:
-            # ResultSetをリストに変換して遅延評価を回避
-            self.issues = list(issues)
-            logger.debug(f"ResultSetをリストに変換しました: {len(self.issues)}件")
-        except Exception as e:
-            logger.error(f"ResultSetの変換に失敗しました: {e}")
-            self.issues = []
+    """Redmineのチケット一覧を表すクラス"""
+
+    def __init__(self, issues: List[RedmineIssue]):
+        self.issues = issues
 
     def __len__(self) -> int:
         return len(self.issues)
 
     def __getitem__(self, index: int) -> RedmineIssue:
-        return RedmineIssue(self.issues[index])
+        return self.issues[index]
 
 
 class RedmineClient:
-    """Redmine APIクライアント（python-redmineライブラリ使用）"""
+    """Redmine APIクライアント（requestsライブラリ使用）"""
 
     def __init__(
         self,
@@ -134,6 +207,7 @@ class RedmineClient:
         api_key: str = None,
         username: str = None,
         password: str = None,
+        verify_ssl: bool = True,
     ):
         """
         RedmineClientの初期化
@@ -143,22 +217,64 @@ class RedmineClient:
             api_key: RedmineのAPIキー（オプション）
             username: ユーザ名（オプション）
             password: パスワード（オプション）
+            verify_ssl: SSL証明書の検証を行うかどうか（デフォルト: True）
         """
-        self.base_url = base_url
+        self.base_url = base_url.rstrip("/")
+        self.verify_ssl = verify_ssl
+        self.session = requests.Session()
 
-        # python-redmineクライアントの初期化
+        # SSL検証設定を適用
+        if not verify_ssl:
+            # urllib3の警告を無効化（SSL検証を無効にした場合）
+            import urllib3
+
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+            logger.warning(
+                "SSL証明書の検証を無効にしました（セキュリティ上の注意が必要です）"
+            )
+
+        # 認証情報の設定
         if api_key:
             # APIキー認証
-            self.redmine = Redmine(base_url, key=api_key)
+            self.session.headers.update(
+                {"X-Redmine-API-Key": api_key, "Content-Type": "application/json"}
+            )
             logger.info("APIキー認証でRedmineクライアントを初期化しました")
         elif username and password:
             # ユーザ名・パスワード認証
-            self.redmine = Redmine(base_url, username=username, password=password)
+            self.session.auth = (username, password)
+            self.session.headers.update({"Content-Type": "application/json"})
             logger.info("ユーザ名・パスワード認証でRedmineクライアントを初期化しました")
         else:
             raise ValueError(
                 "認証情報が不足しています。APIキーまたはユーザ名とパスワードを指定してください。"
             )
+
+    def _make_request(self, endpoint: str, params: Dict = None) -> Dict:
+        """
+        Redmine APIにリクエストを送信
+
+        Args:
+            endpoint: APIエンドポイント
+            params: クエリパラメータ
+
+        Returns:
+            APIレスポンスのJSONデータ
+        """
+        url = f"{self.base_url}{endpoint}"
+
+        try:
+            response = self.session.get(url, params=params, verify=self.verify_ssl)
+            response.raise_for_status()
+
+            # JSONレスポンスを解析
+            data = response.json()
+            logger.debug(f"APIリクエスト成功: {url}")
+            return data
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"APIリクエストに失敗しました: {url}, エラー: {e}")
+            raise
 
     def get_issues(
         self, limit: int = 10, offset: int = 0, sort: str = "created_on:asc"
@@ -175,16 +291,28 @@ class RedmineClient:
             チケット一覧
         """
         try:
-            # python-redmineライブラリを使用してチケットを取得
-            issues = self.redmine.issue.filter(
-                limit=limit,
-                offset=offset,
-                sort=sort,
-                include=["attachments"],
-                status_id="*",
+            # APIパラメータを構築
+            params = {
+                "limit": limit,
+                "offset": offset,
+                "sort": sort,
+                "include": "attachments",
+                "status_id": "*",
+            }
+
+            # Redmine REST APIを呼び出し
+            data = self._make_request("/issues.json", params)
+
+            # レスポンスからチケット一覧を構築
+            issues = []
+            for issue_data in data.get("issues", []):
+                issues.append(RedmineIssue(issue_data, self.verify_ssl))
+
+            logger.debug(
+                f"チケット取得リクエスト完了: limit={limit}, offset={offset}, 取得件数={len(issues)}"
             )
-            logger.debug(f"チケット取得リクエスト完了: limit={limit}, offset={offset}")
             return RedmineIssueList(issues)
+
         except Exception as e:
             logger.error(f"チケット取得に失敗しました: {e}")
             # エラーが発生した場合は空のリストを返す

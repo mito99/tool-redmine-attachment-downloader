@@ -107,6 +107,7 @@ def setup_environment():
         == "true",
         "request_interval": float(os.getenv("REDMINE_REQUEST_INTERVAL", "1.0")),
         "download_interval": float(os.getenv("REDMINE_DOWNLOAD_INTERVAL", "0.5")),
+        "verify_ssl": os.getenv("REDMINE_VERIFY_SSL", "true").lower() == "true",
     }
 
     # 必須項目のチェック
@@ -192,7 +193,7 @@ def download_attachments(client: RedmineClient, config: dict):
 
             for i, issue in enumerate(issues, 1):
                 logger.info(
-                    f"チケット {i}/{len(issues)} を処理中: {issue.issue.id} (全体のoffset={current_offset + i - 1})"
+                    f"チケット {i}/{len(issues)} を処理中: {issue.id} (全体のoffset={current_offset + i - 1})"
                 )
 
                 if issue.has_attachments():
@@ -202,7 +203,7 @@ def download_attachments(client: RedmineClient, config: dict):
                     logger.info(f"  添付ファイル数: {len(attachments)}")
 
                     # チケットIDごとのディレクトリを作成
-                    issue_dir = Path(config["download_dir"]) / f"{issue.issue.id}"
+                    issue_dir = Path(config["download_dir"]) / f"{issue.id}"
                     issue_dir.mkdir(exist_ok=True)
 
                     # 添付ファイルをダウンロード
@@ -263,6 +264,7 @@ def main():
             api_key=config["api_key"],
             username=config["username"],
             password=config["password"],
+            verify_ssl=config["verify_ssl"],
         )
 
         # 添付ファイルをダウンロード
