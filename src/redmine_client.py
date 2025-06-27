@@ -58,13 +58,21 @@ class RedmineAttachment:
             # ダウンロードパスを構築
             download_path = Path(directory) / filename
 
+            # ファイルダウンロード用のヘッダーを準備
+            download_headers = {}
+            if self.headers:
+                # Content-Typeヘッダーを除外（ファイルダウンロードでは不要）
+                download_headers = {
+                    k: v for k, v in self.headers.items() if k.lower() != "content-type"
+                }
+
             # ファイルをダウンロード（認証情報付き）
             response = requests.get(
                 self.content_url,
                 stream=True,
                 verify=self.verify_ssl,
                 auth=self.auth,
-                headers=self.headers,
+                headers=download_headers,
             )
             response.raise_for_status()
 
@@ -213,7 +221,25 @@ class RedmineIssueList(Sequence):
 
 
 class RedmineClient:
-    """Redmine APIクライアント（requestsライブラリ使用）"""
+    """Redmine APIクライアント（requestsライブラリ使用）
+
+    使用例:
+        # APIキーでチケット取得、ユーザ名・パスワードでファイルダウンロード
+        client = RedmineClient(
+            base_url="https://your-redmine.com",
+            api_key="your_api_key",           # チケット取得用
+            username="your_username",         # ファイルダウンロード用
+            password="your_password"          # ファイルダウンロード用
+        )
+
+        # チケットを取得
+        issues = client.get_issues(limit=10)
+
+        # 添付ファイルをダウンロード（Basic認証で実行）
+        for issue in issues:
+            if issue.has_attachments():
+                issue.download_attachments("./downloads")
+    """
 
     def __init__(
         self,
@@ -228,9 +254,9 @@ class RedmineClient:
 
         Args:
             base_url: RedmineのベースURL
-            api_key: RedmineのAPIキー（オプション）
-            username: ユーザ名（オプション）
-            password: パスワード（オプション）
+            api_key: RedmineのAPIキー（チケット取得用）
+            username: ユーザ名（ファイルダウンロード用）
+            password: パスワード（ファイルダウンロード用）
             verify_ssl: SSL証明書の検証を行うかどうか（デフォルト: True）
         """
         self.base_url = base_url.rstrip("/")
@@ -248,18 +274,30 @@ class RedmineClient:
             )
 
         # 認証情報の設定
+        self.api_key = api_key
+        self.username = username
+        self.password = password
+
+        # APIキー認証（チケット取得用）
         if api_key:
-            # APIキー認証
             self.session.headers.update(
                 {"X-Redmine-API-Key": api_key, "Content-Type": "application/json"}
             )
             logger.info("APIキー認証でRedmineクライアントを初期化しました")
-        elif username and password:
-            # ユーザ名・パスワード認証
-            self.session.auth = (username, password)
-            self.session.headers.update({"Content-Type": "application/json"})
-            logger.info("ユーザ名・パスワード認証でRedmineクライアントを初期化しました")
+
+        # ユーザ名・パスワード認証（ファイルダウンロード用）
+        if username and password:
+            # ファイルダウンロード用の認証情報を保存
+            self.download_auth = (username, password)
+            logger.info(
+                "ユーザ名・パスワード認証でファイルダウンロード機能を初期化しました"
+            )
         else:
+            self.download_auth = None
+            logger.warning("ファイルダウンロード用の認証情報が設定されていません")
+
+        # 最低限の認証情報チェック
+        if not api_key and not (username and password):
             raise ValueError(
                 "認証情報が不足しています。APIキーまたはユーザ名とパスワードを指定してください。"
             )
@@ -324,7 +362,7 @@ class RedmineClient:
                     RedmineIssue(
                         issue_data,
                         self.verify_ssl,
-                        self.session.auth,
+                        self.download_auth,  # ファイルダウンロード用の認証情報
                         self.session.headers,
                     )
                 )
