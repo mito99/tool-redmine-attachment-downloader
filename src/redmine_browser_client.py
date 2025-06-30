@@ -4,6 +4,7 @@ Playwrightを使用してRedmineのWebインターフェースを操作し、添
 """
 
 import asyncio
+import base64
 import logging
 import os
 import time
@@ -15,13 +16,13 @@ from playwright.async_api import Page, Playwright, async_playwright
 logger = logging.getLogger(__name__)
 
 
-def get_browser_settings() -> tuple[bool, int, float, int, float]:
+def get_browser_settings() -> tuple[str, bool, int, float, int, float, str]:
     """
     環境変数からブラウザ設定を取得
 
     Returns:
-        (headless, timeout, delete_interval, retry_count, retry_interval):
-        ヘッドレスモード、タイムアウト、削除間隔、リトライ回数、リトライ間隔のタプル
+        (browser_base_url, headless, timeout, delete_interval, retry_count, retry_interval, auth_method):
+        ブラウザベースURL、ヘッドレスモード、タイムアウト、削除間隔、リトライ回数、リトライ間隔、認証方式のタプル
     """
     # ブラウザのベースURL、デフォルトはローカルのブラウザ
     browser_base_url = os.getenv("REDMINE_BROWSER_BASE_URL", "")
@@ -41,6 +42,10 @@ def get_browser_settings() -> tuple[bool, int, float, int, float]:
     # リトライ間隔（秒）、デフォルト2.0秒
     retry_interval = float(os.getenv("REDMINE_DELETE_RETRY_INTERVAL", "2.0"))
 
+    # 認証方式、デフォルトは"login_page"（ログインページ認証）
+    # "basic" または "login_page" を指定可能
+    auth_method = os.getenv("REDMINE_AUTH_METHOD", "login_page").lower()
+
     return (
         browser_base_url,
         headless,
@@ -48,6 +53,7 @@ def get_browser_settings() -> tuple[bool, int, float, int, float]:
         delete_interval,
         retry_count,
         retry_interval,
+        auth_method,
     )
 
 
@@ -77,6 +83,7 @@ class RedmineBrowserClient:
         delete_interval: float = 1.0,
         retry_count: int = 3,
         retry_interval: float = 2.0,
+        auth_method: str = "login_page",
     ):
         """
         RedmineBrowserClientの初期化
@@ -90,6 +97,7 @@ class RedmineBrowserClient:
             delete_interval: 削除操作間の待機時間（秒）
             retry_count: 削除失敗時のリトライ回数（デフォルト: 3）
             retry_interval: リトライ間隔（秒）（デフォルト: 2.0）
+            auth_method: 認証方式（"basic" または "login_page"）（デフォルト: "login_page"）
         """
         self.base_url = base_url.rstrip("/")
         self.username = username
@@ -99,12 +107,14 @@ class RedmineBrowserClient:
         self.delete_interval = delete_interval
         self.retry_count = retry_count
         self.retry_interval = retry_interval
+        self.auth_method = auth_method.lower()
 
         self.playwright: Optional[Playwright] = None
         self.browser = None
         self.page: Optional[Page] = None
 
         logger.info(f"Redmineブラウザクライアントを初期化しました: {base_url}")
+        logger.info(f"認証方式: {self.auth_method}")
         logger.info(f"ヘッドレスモード: {headless}, タイムアウト: {timeout}秒")
         logger.info(f"リトライ設定: 回数={retry_count}回, 間隔={retry_interval}秒")
 
@@ -115,13 +125,20 @@ class RedmineBrowserClient:
             self.browser = await self.playwright.chromium.launch(
                 headless=self.headless, args=["--no-sandbox", "--disable-dev-shm-usage"]
             )
-            context = await self.browser.new_context()
-            context.set_extra_http_headers(
-                {
-                    "Authorization": f"Basic {self.username}:{self.password}",
-                }
-            )
-            self.page = await context.new_page()
+            self.page = await self.browser.new_page()
+
+            # Basic認証方式の場合のみヘッダーを設定
+            if self.auth_method == "basic":
+                token = base64.b64encode(
+                    f"{self.username}:{self.password}".encode()
+                ).decode()
+                self.page.set_extra_http_headers(
+                    {
+                        "Authorization": f"Basic {token}",
+                    }
+                )
+                logger.info("Basic認証ヘッダーを設定しました")
+
             self.page.set_default_timeout(self.timeout)
 
             logger.info("ブラウザをセットアップしました")
@@ -131,12 +148,20 @@ class RedmineBrowserClient:
 
     async def login(self) -> bool:
         """
-        Redmineにログイン（ダイアログログインを使用）
+        Redmineにログイン（認証方式に応じて自動選択）
 
         Returns:
             ログイン成功時はTrue
         """
-        return await self.login_with_page()
+        if self.auth_method == "basic":
+            # Basic認証の場合はログイン処理は不要（ヘッダーで認証済み）
+            logger.info("Basic認証方式のため、ログイン処理をスキップします")
+            return True
+        elif self.auth_method == "login_page":
+            return await self.login_with_page()
+        else:
+            logger.error(f"サポートされていない認証方式です: {self.auth_method}")
+            return False
 
     async def login_with_page(self) -> bool:
         """

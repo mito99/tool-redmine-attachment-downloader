@@ -71,12 +71,14 @@ export REDMINE_API_BASE_TIMEOUT="30"           # APIリクエスト基本タイ�
 export REDMINE_API_TIMEOUT_INCREMENT="10"      # APIリクエストタイムアウト増加時間（秒）（デフォルト: 10）
 
 # 添付ファイル削除機能用の設定
-export REDMINE_BROWSER_HEADLESS="true"         # ブラウザのヘッドレスモード（デフォルト: true）
-export REDMINE_BROWSER_TIMEOUT="30"            # ブラウザ操作のタイムアウト（秒）（デフォルト: 30）
-export REDMINE_DELETE_INTERVAL="1.0"           # 削除操作間の待機時間（秒）（デフォルト: 1.0）
-export REDMINE_DELETE_RETRY_COUNT="3"          # 削除失敗時のリトライ回数（デフォルト: 3）
-export REDMINE_DELETE_RETRY_INTERVAL="2.0"     # 削除リトライ間隔（秒）（デフォルト: 2.0）
-export REDMINE_DELETE_CONFIRM_SKIP="false"     # 削除確認をスキップする（デフォルト: false）
+export REDMINE_BROWSER_BASE_URL="https://your-redmine-instance.com"  # ブラウザ操作用のベースURL（必須）
+export REDMINE_AUTH_METHOD="login_page"                              # 認証方式（"basic" または "login_page"）（デフォルト: "login_page"）
+export REDMINE_BROWSER_HEADLESS="true"                               # ブラウザのヘッドレスモード（デフォルト: true）
+export REDMINE_BROWSER_TIMEOUT="30"                                  # ブラウザ操作のタイムアウト（秒）（デフォルト: 30）
+export REDMINE_DELETE_INTERVAL="1.0"                                 # 削除操作間の待機時間（秒）（デフォルト: 1.0）
+export REDMINE_DELETE_RETRY_COUNT="3"                                # 削除失敗時のリトライ回数（デフォルト: 3）
+export REDMINE_DELETE_RETRY_INTERVAL="2.0"                           # 削除リトライ間隔（秒）（デフォルト: 2.0）
+export REDMINE_DELETE_CONFIRM_SKIP="false"                           # 削除確認をスキップする（デフォルト: false）
 ```
 
 ## 使用方法
@@ -132,12 +134,26 @@ export REDMINE_DELETE_INTERVAL="0.5"
 python scripts/delete_attachments.py
 ```
 
+#### Basic認証を使用して添付ファイルを削除
+```bash
+export REDMINE_AUTH_METHOD="basic"
+python scripts/delete_attachments.py
+```
+
+#### ログインページ認証を使用して添付ファイルを削除（デフォルト）
+```bash
+export REDMINE_AUTH_METHOD="login_page"
+python scripts/delete_attachments.py
+```
+
 ## 動作仕様
 
 ### 添付ファイル削除機能
 
 1. **ブラウザ操作**: Playwrightを使用してRedmineのWebインターフェースを操作
-2. **ログイン処理**: 指定されたユーザ名・パスワードでRedmineにログイン
+2. **認証処理**: 設定された認証方式に応じて認証を実行
+   - **Basic認証** (`REDMINE_AUTH_METHOD="basic"`): HTTPヘッダーでBasic認証を実行
+   - **ログインページ認証** (`REDMINE_AUTH_METHOD="login_page"`): ログインページでユーザ名・パスワードを入力
 3. **チケット取得**: REST APIを使用して添付ファイルが存在するチケットを取得
 4. **削除処理**: 各チケットページに移動し、添付ファイルの削除ボタンをクリック
 5. **確認ダイアログ**: 削除確認ダイアログが表示された場合は自動的に「OK」をクリック

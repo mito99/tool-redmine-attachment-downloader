@@ -117,6 +117,7 @@ def setup_environment():
         delete_interval,
         retry_count,
         retry_interval,
+        auth_method,
     ) = get_browser_settings()
     config.update(
         {
@@ -126,6 +127,7 @@ def setup_environment():
             "delete_interval": delete_interval,
             "browser_retry_count": retry_count,
             "browser_retry_interval": retry_interval,
+            "auth_method": auth_method,
         }
     )
 
@@ -339,6 +341,7 @@ async def main():
             delete_interval=config["delete_interval"],
             retry_count=config["browser_retry_count"],
             retry_interval=config["browser_retry_interval"],
+            auth_method=config["auth_method"],
         ) as browser_client:
             # ログイン
             if not await browser_client.login():
