@@ -23,6 +23,9 @@ def get_browser_settings() -> tuple[bool, int, float, int, float]:
         (headless, timeout, delete_interval, retry_count, retry_interval):
         ヘッドレスモード、タイムアウト、削除間隔、リトライ回数、リトライ間隔のタプル
     """
+    # ブラウザのベースURL、デフォルトはローカルのブラウザ
+    browser_base_url = os.getenv("REDMINE_BROWSER_BASE_URL", "")
+
     # ヘッドレスモード、デフォルトTrue
     headless = os.getenv("REDMINE_BROWSER_HEADLESS", "true").lower() == "true"
 
@@ -38,7 +41,14 @@ def get_browser_settings() -> tuple[bool, int, float, int, float]:
     # リトライ間隔（秒）、デフォルト2.0秒
     retry_interval = float(os.getenv("REDMINE_DELETE_RETRY_INTERVAL", "2.0"))
 
-    return headless, timeout, delete_interval, retry_count, retry_interval
+    return (
+        browser_base_url,
+        headless,
+        timeout,
+        delete_interval,
+        retry_count,
+        retry_interval,
+    )
 
 
 class RedmineBrowserClient:

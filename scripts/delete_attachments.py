@@ -110,11 +110,17 @@ def setup_environment():
     }
 
     # ブラウザ設定を取得
-    headless, timeout, delete_interval, retry_count, retry_interval = (
-        get_browser_settings()
-    )
+    (
+        browser_base_url,
+        headless,
+        timeout,
+        delete_interval,
+        retry_count,
+        retry_interval,
+    ) = get_browser_settings()
     config.update(
         {
+            "browser_base_url": browser_base_url,
             "browser_headless": headless,
             "browser_timeout": timeout,
             "delete_interval": delete_interval,
@@ -126,6 +132,9 @@ def setup_environment():
     # 必須項目のチェック
     if not config["base_url"]:
         raise ValueError("REDMINE_BASE_URL環境変数が設定されていません")
+
+    if not config["browser_base_url"]:
+        raise ValueError("REDMINE_BROWSER_BASE_URL環境変数が設定されていません")
 
     if not config["username"] or not config["password"]:
         raise ValueError(
@@ -322,7 +331,7 @@ async def main():
         # Redmineブラウザクライアントを初期化
         logger.info("Redmineブラウザクライアントを初期化中...")
         async with RedmineBrowserClient(
-            base_url=config["base_url"],
+            base_url=config["browser_base_url"],
             username=config["username"],
             password=config["password"],
             headless=config["browser_headless"],
