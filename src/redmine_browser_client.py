@@ -125,7 +125,144 @@ class RedmineBrowserClient:
 
     async def login(self) -> bool:
         """
-        Redmineにログイン
+        Redmineにログイン（ダイアログログインを使用）
+
+        Returns:
+            ログイン成功時はTrue
+        """
+        return await self.login_with_dialog()
+
+    async def login_with_dialog(self) -> bool:
+        """
+        Redmineにダイアログログイン
+
+        Returns:
+            ログイン成功時はTrue
+        """
+        try:
+            if not self.page:
+                await self._setup_browser()
+
+            # ベースURLに移動（ログインページではなく）
+            logger.info(f"Redmineサイトに移動中: {self.base_url}")
+
+            await self.page.goto(self.base_url)
+            await self.page.wait_for_load_state("networkidle")
+
+            # ログインダイアログが表示されるまで待機
+            logger.info("ログインダイアログの表示を待機中...")
+
+            # ダイアログの表示を待機（複数の可能性を考慮）
+            dialog_selectors = [
+                'input[name="username"]',
+                'input[type="text"]',
+                'input[placeholder*="ユーザー"]',
+                'input[placeholder*="username"]',
+                'input[placeholder*="user"]',
+            ]
+
+            username_input = None
+            for selector in dialog_selectors:
+                try:
+                    username_input = self.page.locator(selector).first
+                    if await username_input.is_visible(timeout=5000):
+                        logger.info(f"ユーザー名入力フィールドを発見: {selector}")
+                        break
+                except:
+                    continue
+
+            if not username_input or not await username_input.is_visible():
+                logger.error(
+                    "ログインダイアログのユーザー名入力フィールドが見つかりません"
+                )
+                return False
+
+            # ユーザ名とパスワードを入力
+            logger.info("ログイン情報を入力中...")
+            await username_input.fill(self.username)
+
+            # パスワード入力フィールドを探す
+            password_selectors = [
+                'input[name="password"]',
+                'input[type="password"]',
+                'input[placeholder*="パスワード"]',
+                'input[placeholder*="password"]',
+                'input[placeholder*="pass"]',
+            ]
+
+            password_input = None
+            for selector in password_selectors:
+                try:
+                    password_input = self.page.locator(selector).first
+                    if await password_input.is_visible(timeout=1000):
+                        logger.info(f"パスワード入力フィールドを発見: {selector}")
+                        break
+                except:
+                    continue
+
+            if not password_input or not await password_input.is_visible():
+                logger.error(
+                    "ログインダイアログのパスワード入力フィールドが見つかりません"
+                )
+                return False
+
+            await password_input.fill(self.password)
+
+            # サインインボタンをクリック
+            signin_selectors = [
+                'input[type="submit"]',
+                'button[type="submit"]',
+                'button:has-text("サインイン")',
+                'button:has-text("Sign in")',
+                'button:has-text("ログイン")',
+                'button:has-text("Login")',
+                'input[value*="サインイン"]',
+                'input[value*="Sign in"]',
+                'input[value*="ログイン"]',
+                'input[value*="Login"]',
+            ]
+
+            signin_button = None
+            for selector in signin_selectors:
+                try:
+                    signin_button = self.page.locator(selector).first
+                    if await signin_button.is_visible(timeout=1000):
+                        logger.info(f"サインインボタンを発見: {selector}")
+                        break
+                except:
+                    continue
+
+            if not signin_button or not await signin_button.is_visible():
+                logger.error("サインインボタンが見つかりません")
+                return False
+
+            await signin_button.click()
+            await self.page.wait_for_load_state("networkidle")
+
+            # ログイン成功の確認（ログインダイアログが消えるか、ダッシュボードに移動する）
+            try:
+                # ログインダイアログが消えることを確認
+                await username_input.wait_for(state="hidden", timeout=10000)
+                logger.info("ログインダイアログが閉じられました")
+            except:
+                # ダイアログが消えない場合は、URLの変更で確認
+                current_url = self.page.url
+                if "/login" not in current_url and "login" not in current_url.lower():
+                    logger.info("URLが変更され、ログインに成功したと判断します")
+                else:
+                    logger.error("ログインに失敗しました")
+                    return False
+
+            logger.info("ダイアログログインに成功しました")
+            return True
+
+        except Exception as e:
+            logger.error(f"ダイアログログイン処理中にエラーが発生しました: {e}")
+            return False
+
+    async def login_with_page(self) -> bool:
+        """
+        Redmineにページログイン（従来のログインページ方式）
 
         Returns:
             ログイン成功時はTrue
@@ -153,14 +290,14 @@ class RedmineBrowserClient:
             # ログイン成功の確認（ダッシュボードまたはマイページにリダイレクトされる）
             current_url = self.page.url
             if "/login" not in current_url:
-                logger.info("ログインに成功しました")
+                logger.info("ページログインに成功しました")
                 return True
             else:
-                logger.error("ログインに失敗しました")
+                logger.error("ページログインに失敗しました")
                 return False
 
         except Exception as e:
-            logger.error(f"ログイン処理中にエラーが発生しました: {e}")
+            logger.error(f"ページログイン処理中にエラーが発生しました: {e}")
             return False
 
     async def delete_attachments_from_issue(self, issue_id: int) -> bool:
